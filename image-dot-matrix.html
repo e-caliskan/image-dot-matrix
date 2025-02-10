@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fabric.js Canvas Editor</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+    <style>
+        .container {
+            display: flex;
+            flex-direction: row;
+            gap: 20px;
+            padding: 20px;
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        .controls {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .canvas-container {
+            border: 1px solid #ccc;
+        }
+
+        button {
+            padding: 8px 16px;
+            cursor: pointer;
+        }
+
+        .download-options {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div class="controls">
+            <div>
+                <label for="imageInput">Resim Yükle:</label>
+                <input type="file" id="imageInput" accept="image/*">
+            </div>
+            <div>
+                <label for="gridSize">Izgara Aralığı (px):</label>
+                <input type="number" id="gridSize" value="5" min="1" max="200">
+            </div>
+            <div>
+                <label for="gridColor">Izgara Rengi:</label>
+                <input type="color" id="gridColor" value="#cccccc">
+            </div>
+            <div>
+                <label><input type="checkbox" id="showGrid" checked> Izgarayı Göster</label>
+            </div>
+            <button id="resetZoom">Yakınlaştırmayı Sıfırla</button>
+            <button id="centerImage">Resmi Ortala</button>
+            <div>
+                <label>Arka Plan:</label>
+                <input type="color" id="bgColor" value="#ffffff">
+            </div>
+
+            <div class="control-group">
+                <label for="downloadFormat">İndirme Formatı:</label>
+                <select id="downloadFormat">
+                    <option value="png">PNG</option>
+                    <option value="jpeg">JPEG</option>
+                </select>
+                <button id="downloadImage">Resmi İndir</button>
+            </div>
+        </div>
+
+        <div>
+            <canvas id="canvas"></canvas>
+        </div>
+    </div>
+
+    <script>
+
+        document.getElementById('downloadImage').addEventListener('click', function () {
+            const format = document.getElementById('downloadFormat').value; // Kullanıcının seçtiği format
+            const dataURL = canvas.toDataURL({
+                format: format,
+                quality: 1 // JPEG için kalite (1 en yüksek)
+            });
+
+            const link = document.createElement('a');
+            link.download = `canvas-image.${format}`; // Dosya adı
+            link.href = dataURL;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        });
+
+
+        const canvas = new fabric.Canvas('canvas', {
+            width: 1600,
+            height: 900,
+            backgroundColor: '#ffffff',
+            preserveObjectStacking: true
+        });
+
+        let gridSize = 5;
+        let showGrid = true;
+        let gridColor = '#000000';
+        let gridGroup = null;
+
+        function createGrid() {
+            if (gridGroup) {
+                canvas.remove(gridGroup);
+            }
+
+            if (!showGrid) return;
+
+            let lines = [];
+            for (let i = 0; i <= canvas.width; i += gridSize) {
+                lines.push(new fabric.Line([i, 0, i, canvas.height], {
+                    stroke: gridColor,
+                    selectable: false,
+                    evented: false // **Izgara artık tıklanamaz!**
+                }));
+            }
+
+            for (let i = 0; i <= canvas.height; i += gridSize) {
+                lines.push(new fabric.Line([0, i, canvas.width, i], {
+                    stroke: gridColor,
+                    selectable: false,
+                    evented: false // **Izgara artık tıklanamaz!**
+                }));
+            }
+
+            gridGroup = new fabric.Group(lines, {
+                selectable: false,
+                evented: false // **Grup da tıklanamaz hale geldi**
+            });
+
+            canvas.add(gridGroup);
+            canvas.bringToFront(gridGroup); // Izgarayı en üste al
+        }
+
+
+
+        canvas.on('object:added', function () {
+            if (gridGroup) canvas.bringToFront(gridGroup);
+        });
+        canvas.on('object:modified', function () {
+            if (gridGroup) canvas.bringToFront(gridGroup);
+        });
+
+        // Resim yükleme
+        document.getElementById('imageInput').addEventListener('change', function (e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function (event) {
+                fabric.Image.fromURL(event.target.result, function (img) {
+                    // Önce eski resmi kaldır
+                    canvas.getObjects().forEach(obj => {
+                        if (obj instanceof fabric.Image) {
+                            canvas.remove(obj);
+                        }
+                    });
+
+                    // Resmi ölçekleyerek ekleyelim
+                    const scale = Math.min(
+                        (canvas.width * 0.8) / img.width,
+                        (canvas.height * 0.8) / img.height
+                    );
+
+                    img.scale(scale);
+                    img.set({
+                        left: (canvas.width - img.width * scale) / 2,
+                        top: (canvas.height - img.height * scale) / 2,
+                        selectable: true,  // **Resim artık seçilebilir!**
+                        evented: true,     // **Resme etkileşim ekleniyor!**
+                        hasControls: true, // **Köşe kontrollerini göster**
+                        lockRotation: false // Döndürme izni ver
+                    });
+
+                    canvas.add(img);
+                    canvas.sendToBack(img); // Resmi en alta gönder
+                    if (gridGroup) canvas.bringToFront(gridGroup); // Izgarayı en üste getir
+                    canvas.setActiveObject(img); // Yeni resmi otomatik olarak seç
+                    canvas.renderAll();
+                });
+            };
+            reader.readAsDataURL(file);
+        });
+
+
+
+        // Izgara rengi değiştirme
+        document.getElementById('gridColor').addEventListener('input', function (e) {
+            gridColor = e.target.value;
+            createGrid();
+            canvas.renderAll();
+        });
+
+        // Izgara boyutu değiştirme
+        document.getElementById('gridSize').addEventListener('input', function (e) {
+            gridSize = parseInt(e.target.value);
+            createGrid();
+        });
+
+        // Izgara görünürlüğünü değiştirme
+        document.getElementById('showGrid').addEventListener('change', function (e) {
+            showGrid = e.target.checked;
+            createGrid();
+        });
+
+        // Arka plan rengi değiştirme
+        document.getElementById('bgColor').addEventListener('input', function (e) {
+            canvas.setBackgroundColor(e.target.value, canvas.renderAll.bind(canvas));
+        });
+
+        // Yakınlaştırmayı sıfırla
+        document.getElementById('resetZoom').addEventListener('click', function () {
+            canvas.setZoom(1);
+            canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
+            canvas.renderAll();
+        });
+
+        // Resmi ortala
+        document.getElementById('centerImage').addEventListener('click', function () {
+            const activeObject = canvas.getActiveObject();
+            if (!activeObject) return;
+            activeObject.center();
+            canvas.renderAll();
+        });
+
+        // Zoom ve Pan kontrolü
+        canvas.on('mouse:wheel', function (opt) {
+            let zoom = canvas.getZoom();
+            zoom *= 0.999 ** opt.e.deltaY;
+            if (zoom > 5) zoom = 5;
+            if (zoom < 0.5) zoom = 0.5;
+            canvas.zoomToPoint({ x: opt.e.offsetX, y: opt.e.offsetY }, zoom);
+            opt.e.preventDefault();
+            opt.e.stopPropagation();
+        });
+
+        canvas.on('mouse:down', function (opt) {
+            if (opt.e.altKey) {
+                this.isDragging = true;
+                this.selection = false;
+                this.lastPosX = opt.e.clientX;
+                this.lastPosY = opt.e.clientY;
+            }
+        });
+
+        canvas.on('mouse:move', function (opt) {
+            if (this.isDragging) {
+                let vpt = this.viewportTransform;
+                vpt[4] += opt.e.clientX - this.lastPosX;
+                vpt[5] += opt.e.clientY - this.lastPosY;
+                this.lastPosX = opt.e.clientX;
+                this.lastPosY = opt.e.clientY;
+                this.requestRenderAll();
+            }
+        });
+
+        canvas.on('mouse:up', function () {
+            this.isDragging = false;
+            this.selection = true;
+        });
+
+        createGrid();
+    </script>
+
+</body>
+</html>
